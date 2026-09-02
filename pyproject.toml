@@ -1,0 +1,7 @@
+[project]
+name = "mkp"
+version = "0.1.0"
+description = "Řešení okrajové úlohy Poissonovy rovnice metodou konečných prvků"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
