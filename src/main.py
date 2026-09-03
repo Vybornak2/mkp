@@ -6,6 +6,42 @@ from numpy.typing import NDArray
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 
+# Local lower stiffness matrix for the triangular element
+LOWER_STIFFNESS: NDArray[np.float64] = 0.5 * np.array(
+    [
+        [1.0, -1.0, 0.0],
+        [-1.0, 2.0, -1.0],
+        [0.0, -1.0, 1.0],
+    ]
+)
+
+# Local upper stiffness matrix for the triangular element
+UPPER_STIFFNESS: NDArray[np.float64] = 0.5 * np.array(
+    [
+        [1.0, 0.0, -1.0],
+        [0.0, 1.0, -1.0],
+        [-1.0, -1.0, 2.0],
+    ]
+)
+
+
+def rhs_f(x: float, y: float, h: float) -> float:
+    source: float = 1.0 - np.sin(np.pi * x) * np.sin(np.pi * y)
+    return source * h * h / 6.0
+
+
+def robin_load(h: float) -> float:
+    return (-7.0 / 8.0) * h / 2.0
+
+
+def robin_stiffness(h: float) -> NDArray[np.float64]:
+    return (h / 48.0) * np.array(
+        [
+            [2.0, 1.0],
+            [1.0, 2.0],
+        ]
+    )
+
 
 def solve(
     elements_per_side: int,
@@ -25,33 +61,7 @@ def solve(
     columns: list[int] = []
     values: list[float] = []
     load: NDArray[np.float64] = np.zeros(node_count)
-
-    # Local lower stiffness matrix for the triangular element
-    lower_stiffness: NDArray[np.float64] = 0.5 * np.array(
-        [
-            [1.0, -1.0, 0.0],
-            [-1.0, 2.0, -1.0],
-            [0.0, -1.0, 1.0],
-        ]
-    )
-    # Local upper stiffness matrix for the triangular element
-    upper_stiffness: NDArray[np.float64] = 0.5 * np.array(
-        [
-            [1.0, 0.0, -1.0],
-            [0.0, 1.0, -1.0],
-            [-1.0, -1.0, 2.0],
-        ]
-    )
-
-    # Local stiffness matrix for Robin boundary condition edges
-    robin_stiffness: NDArray[np.float64] = (h / 48.0) * (
-        np.array(
-            [
-                [2.0, 1.0],
-                [1.0, 2.0],
-            ]
-        )
-    )
+    local_robin_stiffness: NDArray[np.float64] = robin_stiffness(h)
 
     # Loop over each square element in the grid
     # Fill rows, columns, and values for the global stiffness matrix assembly
@@ -65,8 +75,8 @@ def solve(
             top_right: int = top_left + 1
 
             triangles: tuple[tuple[list[int], NDArray[np.float64]], ...] = (
-                ([bottom_left, bottom_right, top_right], lower_stiffness),
-                ([bottom_left, top_right, top_left], upper_stiffness),
+                ([bottom_left, bottom_right, top_right], LOWER_STIFFNESS),
+                ([bottom_left, top_right, top_left], UPPER_STIFFNESS),
             )
 
             for nodes, local_stiffness in triangles:
@@ -74,10 +84,7 @@ def solve(
                     node: int = nodes[local_row]
 
                     # Load evaluation at the current node
-                    source: float = 1.0 - np.sin(np.pi * x[node]) * np.sin(
-                        np.pi * y[node]
-                    )
-                    load[node] += source * h * h / 6.0
+                    load[node] += rhs_f(x[node], y[node], h)
 
                     for local_column in range(3):
                         rows.append(node)
@@ -105,12 +112,12 @@ def solve(
 
         for local_row in range(2):
             node = edge_nodes[local_row]
-            load[node] -= 7.0 * h / 16.0
+            load[node] += robin_load(h)
 
             for local_column in range(2):
                 rows.append(node)
                 columns.append(edge_nodes[local_column])
-                values.append(robin_stiffness[local_row, local_column])
+                values.append(local_robin_stiffness[local_row, local_column])
 
     # Assemble the global stiffness matrix
     stiffness = coo_matrix(  # type: ignore
