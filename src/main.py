@@ -3,6 +3,7 @@ from typing import NamedTuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
 from numpy.typing import NDArray
 
 import fem
@@ -19,26 +20,32 @@ class Comparison(NamedTuple):
 
 
 def plot_solution(
-    coordinates: NDArray[np.float64], solution: NDArray[np.float64]
+    coordinates: NDArray[np.float64],
+    solution: NDArray[np.float64],
+    name: str,
 ) -> None:
-    x_grid, y_grid = np.meshgrid(coordinates, coordinates)
-    figure = plt.figure(figsize=(8, 6))
-    axes = figure.add_subplot(111, projection="3d")
-    surface = axes.plot_surface(x_grid, y_grid, solution, cmap="viridis")
-    axes.set_xlabel("x")
-    axes.set_ylabel("y")
-    axes.set_zlabel("u(x, y)")
-    axes.set_title(
-        f"FEM solution, {len(coordinates) - 1} x {len(coordinates) - 1} grid"
+    grid_size: int = len(coordinates) - 1
+    figure = go.Figure(
+        data=go.Surface(
+            x=coordinates,
+            y=coordinates,
+            z=solution,
+            colorscale="Viridis",
+            colorbar={"title": "u(x, y)"},
+            hovertemplate="x=%{x:.4f}<br>y=%{y:.4f}<br>u=%{z:.6f}<extra></extra>",
+        )
     )
-    figure.colorbar(surface, ax=axes, shrink=0.7)
-    figure.tight_layout()
-
-
-def save_plot(name: str) -> None:
-    figure = plt.gcf()
-    figure.savefig(OUTPUT_DIRECTORY / name, dpi=160)
-    plt.close(figure)
+    figure.update_layout(
+        title=f"FEM solution, {grid_size} x {grid_size} grid",
+        scene={
+            "xaxis_title": "x",
+            "yaxis_title": "y",
+            "zaxis_title": "u(x, y)",
+            "aspectmode": "cube",
+        },
+        margin={"l": 0, "r": 0, "b": 0, "t": 50},
+    )
+    figure.write_html(OUTPUT_DIRECTORY / name, include_plotlyjs=True)
 
 
 def fem_at_cell_centers(solution: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -62,6 +69,7 @@ def plot_method_comparison(
     coordinates: NDArray[np.float64],
     finite_volume_solution: NDArray[np.float64],
     comparison: Comparison,
+    name: str,
 ) -> None:
     middle: int = len(coordinates) // 2
     figure, axes = plt.subplots(1, 3, figsize=(15, 4))
@@ -93,6 +101,8 @@ def plot_method_comparison(
     figure.colorbar(image, ax=axes[2], label="difference")
 
     figure.tight_layout()
+    figure.savefig(OUTPUT_DIRECTORY / name, dpi=160)
+    plt.close(figure)
 
 
 def print_summary(
@@ -122,26 +132,24 @@ def main() -> None:
     fvm_coordinates_10, fvm_solution_10, fvm_residual_10 = finite_volume.solve(10)
     fvm_coordinates_100, fvm_solution_100, fvm_residual_100 = finite_volume.solve(100)
 
-    plot_solution(coordinates_10, solution_10)
-    save_plot("solution_10x10.png")
-    plot_solution(coordinates_100, solution_100)
-    save_plot("solution_100x100.png")
+    plot_solution(coordinates_10, solution_10, "solution_10x10.html")
+    plot_solution(coordinates_100, solution_100, "solution_100x100.html")
 
     comparison_10 = get_comparison(solution_10, fvm_solution_10)
     plot_method_comparison(
         fvm_coordinates_10,
         fvm_solution_10,
         comparison_10,
+        "comparison_10x10.png",
     )
-    save_plot("comparison_10x10.png")
 
     comparison_100 = get_comparison(solution_100, fvm_solution_100)
     plot_method_comparison(
         fvm_coordinates_100,
         fvm_solution_100,
         comparison_100,
+        "comparison_100x100.png",
     )
-    save_plot("comparison_100x100.png")
 
     print_summary(
         10,
