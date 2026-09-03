@@ -3,146 +3,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
-from scipy.sparse import coo_matrix
-from scipy.sparse.linalg import spsolve
 
-# Local lower stiffness matrix for the triangular element
-LOWER_STIFFNESS: NDArray[np.float64] = 0.5 * np.array(
-    [
-        [1.0, -1.0, 0.0],
-        [-1.0, 2.0, -1.0],
-        [0.0, -1.0, 1.0],
-    ]
-)
-
-# Local upper stiffness matrix for the triangular element
-UPPER_STIFFNESS: NDArray[np.float64] = 0.5 * np.array(
-    [
-        [1.0, 0.0, -1.0],
-        [0.0, 1.0, -1.0],
-        [-1.0, -1.0, 2.0],
-    ]
-)
-
-
-def rhs_f(x: float, y: float, h: float) -> float:
-    source: float = 1.0 - np.sin(np.pi * x) * np.sin(np.pi * y)
-    return source * h * h / 6.0
-
-
-def robin_load(h: float) -> float:
-    return (-7.0 / 8.0) * h / 2.0
-
-
-def robin_stiffness(h: float) -> NDArray[np.float64]:
-    return (h / 48.0) * np.array(
-        [
-            [2.0, 1.0],
-            [1.0, 2.0],
-        ]
-    )
-
-
-def solve(
-    elements_per_side: int,
-) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
-    n: int = elements_per_side
-    h: float = 1.0 / n
-    node_count: int = (n + 1) * (n + 1)
-
-    # Node coordinates
-    coordinates: NDArray[np.float64] = np.linspace(0.0, 1.0, n + 1)
-    x_grid, y_grid = np.meshgrid(coordinates, coordinates)
-    x: NDArray[np.float64] = x_grid.ravel()
-    y: NDArray[np.float64] = y_grid.ravel()
-
-    # Node Indices and respective stiffness contributions for the global matrix, load vector
-    rows: list[int] = []
-    columns: list[int] = []
-    values: list[float] = []
-    load: NDArray[np.float64] = np.zeros(node_count)
-    local_robin_stiffness: NDArray[np.float64] = robin_stiffness(h)
-
-    # Loop over each square element in the grid
-    # Fill rows, columns, and values for the global stiffness matrix assembly
-    for row in range(n):
-        for column in range(n):
-            # Node indices for the current square element
-            # Indexing from the bottom-left corner of the grid
-            bottom_left: int = row * (n + 1) + column
-            bottom_right: int = bottom_left + 1
-            top_left: int = bottom_left + n + 1
-            top_right: int = top_left + 1
-
-            triangles: tuple[tuple[list[int], NDArray[np.float64]], ...] = (
-                ([bottom_left, bottom_right, top_right], LOWER_STIFFNESS),
-                ([bottom_left, top_right, top_left], UPPER_STIFFNESS),
-            )
-
-            for nodes, local_stiffness in triangles:
-                for local_row in range(3):
-                    node: int = nodes[local_row]
-
-                    # Load evaluation at the current node
-                    load[node] += rhs_f(x[node], y[node], h)
-
-                    for local_column in range(3):
-                        rows.append(node)
-                        columns.append(nodes[local_column])
-                        values.append(local_stiffness[local_row, local_column])
-
-    # list of node pairs representing edges with Robin boundary condition
-    robin_edges: list[tuple[int, int]] = []
-
-    # Upper and lower boundary edges for Robin boundary condition
-    for column in range(n):
-        robin_edges.append((column, column + 1))
-        robin_edges.append((n * (n + 1) + column, n * (n + 1) + column + 1))
-
-    # Right boundary edges for Robin boundary condition
-    for row in range(n):
-        robin_edges.append((row * (n + 1) + n, (row + 1) * (n + 1) + n))
-
-    # Left boundary edges for Robin boundary condition
-    for row in range(n // 2, n):
-        robin_edges.append((row * (n + 1), (row + 1) * (n + 1)))
-
-    for first_node, second_node in robin_edges:
-        edge_nodes: tuple[int, int] = (first_node, second_node)
-
-        for local_row in range(2):
-            node = edge_nodes[local_row]
-            load[node] += robin_load(h)
-
-            for local_column in range(2):
-                rows.append(node)
-                columns.append(edge_nodes[local_column])
-                values.append(local_robin_stiffness[local_row, local_column])
-
-    # Assemble the global stiffness matrix
-    stiffness = coo_matrix(  # type: ignore
-        (values, (rows, columns)),  # type: ignore
-        shape=(node_count, node_count),
-    ).tocsr()
-
-    # Dirichlet boundary conditions
-    free_nodes: NDArray[np.bool_] = np.ones(node_count, dtype=bool)
-    for row in range(n // 2 + 1):
-        free_nodes[row * (n + 1)] = False
-
-    # Application Dirichlet boundary conditions
-    reduced_stiffness = stiffness[free_nodes][:, free_nodes]
-    reduced_load: NDArray[np.float64] = load[free_nodes]
-    solution: NDArray[np.float64] = np.zeros(node_count)
-
-    # Solve the reduced system for free nodes
-    solution[free_nodes] = spsolve(reduced_stiffness, reduced_load)
-
-    # Compute the residual of the solution
-    residual: float = float(
-        np.linalg.norm(reduced_stiffness @ solution[free_nodes] - reduced_load)
-    )
-    return coordinates, solution.reshape((n + 1, n + 1)), residual
+import finite_volume
+import fem
 
 
 def save_solution_plot(
@@ -164,18 +27,84 @@ def save_solution_plot(
     plt.close(figure)
 
 
+def fem_at_cell_centers(solution: NDArray[np.float64]) -> NDArray[np.float64]:
+    return 0.5 * (solution[:-1, :-1] + solution[1:, 1:])
+
+
+def save_method_comparison(
+    coordinates: NDArray[np.float64],
+    fem_solution: NDArray[np.float64],
+    finite_volume_solution: NDArray[np.float64],
+    output_path: Path,
+) -> tuple[float, float]:
+    fem_centers: NDArray[np.float64] = fem_at_cell_centers(fem_solution)
+    difference: NDArray[np.float64] = fem_centers - finite_volume_solution
+    relative_l2: float = float(
+        np.linalg.norm(difference) / np.linalg.norm(finite_volume_solution)
+    )
+    maximum_difference: float = float(np.max(np.abs(difference)))
+
+    middle: int = len(coordinates) // 2
+    figure, axes = plt.subplots(1, 3, figsize=(15, 4))
+    axes[0].plot(coordinates, fem_centers[middle, :], label="FEM")
+    axes[0].plot(coordinates, finite_volume_solution[middle, :], "--", label="FVM")
+    axes[0].set_title(f"Horizontal cut y = {coordinates[middle]:.3f}")
+    axes[0].set_xlabel("x")
+    axes[0].set_ylabel("u")
+    axes[0].grid()
+    axes[0].legend()
+
+    axes[1].plot(coordinates, fem_centers[:, middle], label="FEM")
+    axes[1].plot(coordinates, finite_volume_solution[:, middle], "--", label="FVM")
+    axes[1].set_title(f"Vertical cut x = {coordinates[middle]:.3f}")
+    axes[1].set_xlabel("y")
+    axes[1].set_ylabel("u")
+    axes[1].grid()
+    axes[1].legend()
+
+    image = axes[2].imshow(
+        difference,
+        origin="lower",
+        extent=(0.0, 1.0, 0.0, 1.0),
+        cmap="coolwarm",
+    )
+    axes[2].set_title("FEM - FVM at cell centers")
+    axes[2].set_xlabel("x")
+    axes[2].set_ylabel("y")
+    figure.colorbar(image, ax=axes[2], label="difference")
+
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=160)
+    plt.close(figure)
+    return relative_l2, maximum_difference
+
+
 def main() -> None:
     output_directory: Path = Path("output")
     output_directory.mkdir(exist_ok=True)
 
-    coordinates_10, solution_10, residual_10 = solve(10)
-    coordinates_100, solution_100, residual_100 = solve(100)
+    coordinates_10, solution_10, residual_10 = fem.solve(10)
+    coordinates_100, solution_100, residual_100 = fem.solve(100)
+    fvm_coordinates_10, fvm_solution_10, fvm_residual_10 = finite_volume.solve(10)
+    fvm_coordinates_100, fvm_solution_100, fvm_residual_100 = finite_volume.solve(100)
 
     save_solution_plot(
         coordinates_10, solution_10, output_directory / "solution_10x10.png"
     )
     save_solution_plot(
         coordinates_100, solution_100, output_directory / "solution_100x100.png"
+    )
+    relative_l2_10, maximum_difference_10 = save_method_comparison(
+        fvm_coordinates_10,
+        solution_10,
+        fvm_solution_10,
+        output_directory / "comparison_10x10.png",
+    )
+    relative_l2_100, maximum_difference_100 = save_method_comparison(
+        fvm_coordinates_100,
+        solution_100,
+        fvm_solution_100,
+        output_directory / "comparison_100x100.png",
     )
 
     figure, axes = plt.subplots(1, 2, figsize=(11, 4))
@@ -206,6 +135,16 @@ def main() -> None:
     print(
         f"100 x 100: min={solution_100.min():.6f}, "
         f"max={solution_100.max():.6f}, residual={residual_100:.3e}"
+    )
+    print(
+        f"FEM vs FVM 10 x 10: relative L2={relative_l2_10:.3e}, "
+        f"max difference={maximum_difference_10:.3e}, "
+        f"FVM residual={fvm_residual_10:.3e}"
+    )
+    print(
+        f"FEM vs FVM 100 x 100: relative L2={relative_l2_100:.3e}, "
+        f"max difference={maximum_difference_100:.3e}, "
+        f"FVM residual={fvm_residual_100:.3e}"
     )
     print(f"Plots saved to {output_directory.resolve()}")
 
