@@ -1,22 +1,15 @@
-from pathlib import Path
-from typing import NamedTuple
+"""Run FEM solutions and convergence analysis."""
 
-import matplotlib.pyplot as plt
+from pathlib import Path
+
 import numpy as np
 import plotly.graph_objects as go
 from numpy.typing import NDArray
 
+import convergence
 import fem
-import finite_volume
 
 OUTPUT_DIRECTORY: Path = Path("output")
-
-
-class Comparison(NamedTuple):
-    fem_centers: NDArray[np.float64]
-    difference: NDArray[np.float64]
-    relative_l2: float
-    maximum_difference: float
 
 
 def plot_solution(
@@ -24,6 +17,7 @@ def plot_solution(
     solution: NDArray[np.float64],
     name: str,
 ) -> None:
+    """Save one FEM solution as an interactive surface plot."""
     grid_size: int = len(coordinates) - 1
     figure = go.Figure(
         data=go.Surface(
@@ -48,124 +42,66 @@ def plot_solution(
     figure.write_html(OUTPUT_DIRECTORY / name, include_plotlyjs=True)
 
 
-def fem_at_cell_centers(solution: NDArray[np.float64]) -> NDArray[np.float64]:
-    return 0.5 * (solution[:-1, :-1] + solution[1:, 1:])
-
-
-def get_comparison(
-    fem_solution: NDArray[np.float64],
-    finite_volume_solution: NDArray[np.float64],
-) -> Comparison:
-    fem_centers: NDArray[np.float64] = fem_at_cell_centers(fem_solution)
-    difference: NDArray[np.float64] = fem_centers - finite_volume_solution
-    relative_l2: float = float(
-        np.linalg.norm(difference) / np.linalg.norm(finite_volume_solution)
-    )
-    maximum_difference: float = float(np.max(np.abs(difference)))
-    return Comparison(fem_centers, difference, relative_l2, maximum_difference)
-
-
-def plot_method_comparison(
-    coordinates: NDArray[np.float64],
-    finite_volume_solution: NDArray[np.float64],
-    comparison: Comparison,
-    name: str,
-) -> None:
-    middle: int = len(coordinates) // 2
-    figure, axes = plt.subplots(1, 3, figsize=(15, 4))
-    axes[0].plot(coordinates, comparison.fem_centers[middle, :], label="FEM")
-    axes[0].plot(coordinates, finite_volume_solution[middle, :], "--", label="FVM")
-    axes[0].set_title(f"Horizontal cut y = {coordinates[middle]:.3f}")
-    axes[0].set_xlabel("x")
-    axes[0].set_ylabel("u")
-    axes[0].grid()
-    axes[0].legend()
-
-    axes[1].plot(coordinates, comparison.fem_centers[:, middle], label="FEM")
-    axes[1].plot(coordinates, finite_volume_solution[:, middle], "--", label="FVM")
-    axes[1].set_title(f"Vertical cut x = {coordinates[middle]:.3f}")
-    axes[1].set_xlabel("y")
-    axes[1].set_ylabel("u")
-    axes[1].grid()
-    axes[1].legend()
-
-    image = axes[2].imshow(
-        comparison.difference,
-        origin="lower",
-        extent=(0.0, 1.0, 0.0, 1.0),
-        cmap="coolwarm",
-    )
-    axes[2].set_title("FEM - FVM at cell centers")
-    axes[2].set_xlabel("x")
-    axes[2].set_ylabel("y")
-    figure.colorbar(image, ax=axes[2], label="difference")
-
-    figure.tight_layout()
-    figure.savefig(OUTPUT_DIRECTORY / name, dpi=160)
-    plt.close(figure)
-
-
-def print_summary(
+def format_solution_summary(
     grid_size: int,
     solution: NDArray[np.float64],
     fem_residual: float,
-    comparison: Comparison,
-    fvm_residual: float,
-) -> None:
-    print(
+) -> str:
+    """Format the numerical summary for one FEM solution."""
+    return (
         f"{grid_size} x {grid_size}: min={solution.min():.6f}, "
         f"max={solution.max():.6f}, residual={fem_residual:.3e}"
-    )
-    print(
-        f"FEM vs FVM {grid_size} x {grid_size}: "
-        f"relative L2={comparison.relative_l2:.3e}, "
-        f"max difference={comparison.maximum_difference:.3e}, "
-        f"FVM residual={fvm_residual:.3e}"
     )
 
 
 def main() -> None:
+    """Solve all grids and save plots and the final text summary."""
     OUTPUT_DIRECTORY.mkdir(exist_ok=True)
 
-    coordinates_10, solution_10, residual_10 = fem.solve(10)
-    coordinates_100, solution_100, residual_100 = fem.solve(100)
-    fvm_coordinates_10, fvm_solution_10, fvm_residual_10 = finite_volume.solve(10)
-    fvm_coordinates_100, fvm_solution_100, fvm_residual_100 = finite_volume.solve(100)
+    grid_sizes = [10, 20, 40, 80]
+    results = [fem.solve(grid_size) for grid_size in grid_sizes]
+    summary_lines = []
+    for grid_size, (coordinates, solution, residual) in zip(
+        grid_sizes, results, strict=True
+    ):
+        summary_lines.append(format_solution_summary(grid_size, solution, residual))
 
-    plot_solution(coordinates_10, solution_10, "solution_10x10.html")
-    plot_solution(coordinates_100, solution_100, "solution_100x100.html")
+    for grid_size in grid_sizes[:-1]:
+        (OUTPUT_DIRECTORY / f"solution_{grid_size}x{grid_size}.html").unlink(
+            missing_ok=True
+        )
+    reference_coordinates, reference, _ = results[-1]
+    plot_solution(reference_coordinates, reference, "solution_80x80.html")
 
-    comparison_10 = get_comparison(solution_10, fvm_solution_10)
-    plot_method_comparison(
-        fvm_coordinates_10,
-        fvm_solution_10,
-        comparison_10,
-        "comparison_10x10.png",
+    errors_and_differences = [
+        convergence.calculate_error(solution, reference)
+        for _, solution, _ in results[:-1]
+    ]
+    errors = [item[0] for item in errors_and_differences]
+    interpolated_solutions = [
+        convergence.interpolate_to_reference(solution, 80)
+        for _, solution, _ in results[:-1]
+    ]
+    summary_lines.extend(
+        ["", convergence.format_convergence_table(grid_sizes[:-1], errors)]
     )
-
-    comparison_100 = get_comparison(solution_100, fvm_solution_100)
-    plot_method_comparison(
-        fvm_coordinates_100,
-        fvm_solution_100,
-        comparison_100,
-        "comparison_100x100.png",
+    (OUTPUT_DIRECTORY / "summary.txt").write_text(
+        "\n".join(summary_lines), encoding="utf-8"
     )
-
-    print_summary(
-        10,
-        solution_10,
-        residual_10,
-        comparison_10,
-        fvm_residual_10,
+    convergence.plot_convergence(
+        grid_sizes[:-1],
+        errors,
+        str(OUTPUT_DIRECTORY / "convergence.png"),
     )
-    print_summary(
-        100,
-        solution_100,
-        residual_100,
-        comparison_100,
-        fvm_residual_100,
-    )
-    print(f"Plots saved to {OUTPUT_DIRECTORY.resolve()}")
+    for grid_size, interpolated_solution in zip(
+        grid_sizes[:-1], interpolated_solutions, strict=True
+    ):
+        convergence.plot_reference_comparison(
+            interpolated_solution,
+            reference,
+            grid_size,
+            str(OUTPUT_DIRECTORY / f"comparison_{grid_size}x{grid_size}.png"),
+        )
 
 
 if __name__ == "__main__":

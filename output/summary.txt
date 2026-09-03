@@ -1,0 +1,15 @@
+10 x 10: min=-1.686044, max=0.000000, residual=6.399e-15
+20 x 20: min=-1.717070, max=0.000000, residual=1.368e-14
+40 x 40: min=-1.732214, max=0.000000, residual=2.827e-14
+80 x 80: min=-1.739684, max=0.000000, residual=5.983e-14
+
+Convergence table (N=80 is the reference solution)
+   N        h       L2 error    EOC L2       H1 error    EOC H1
+  10   0.1000   5.845327e-02         -   3.773733e-01         -
+  20   0.0500   2.484837e-02     1.234   2.495267e-01     0.597
+  40   0.0250   8.243858e-03     1.592   1.447291e-01     0.786
+
+Evaluation:
+Both errors decrease and the EOC values approach the expected orders
+2 for L2 and 1 for H1. The values are lower because N=80 is itself
+a numerical reference solution.
