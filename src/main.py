@@ -14,11 +14,13 @@ def solve(
     h: float = 1.0 / n
     node_count: int = (n + 1) * (n + 1)
 
+    # Node coordinates
     coordinates: NDArray[np.float64] = np.linspace(0.0, 1.0, n + 1)
     x_grid, y_grid = np.meshgrid(coordinates, coordinates)
     x: NDArray[np.float64] = x_grid.ravel()
     y: NDArray[np.float64] = y_grid.ravel()
 
+    # Node Indices and respective stiffness contributions for the global matrix, load vector
     rows: list[int] = []
     columns: list[int] = []
     values: list[float] = []
@@ -41,10 +43,22 @@ def solve(
         ]
     )
 
+    # Local stiffness matrix for Robin boundary condition edges
+    robin_stiffness: NDArray[np.float64] = (h / 48.0) * (
+        np.array(
+            [
+                [2.0, 1.0],
+                [1.0, 2.0],
+            ]
+        )
+    )
+
     # Loop over each square element in the grid
+    # Fill rows, columns, and values for the global stiffness matrix assembly
     for row in range(n):
         for column in range(n):
             # Node indices for the current square element
+            # Indexing from the bottom-left corner of the grid
             bottom_left: int = row * (n + 1) + column
             bottom_right: int = bottom_left + 1
             top_left: int = bottom_left + n + 1
@@ -58,6 +72,8 @@ def solve(
             for nodes, local_stiffness in triangles:
                 for local_row in range(3):
                     node: int = nodes[local_row]
+
+                    # Load evaluation at the current node
                     source: float = 1.0 - np.sin(np.pi * x[node]) * np.sin(
                         np.pi * y[node]
                     )
@@ -68,19 +84,21 @@ def solve(
                         columns.append(nodes[local_column])
                         values.append(local_stiffness[local_row, local_column])
 
+    # list of node pairs representing edges with Robin boundary condition
     robin_edges: list[tuple[int, int]] = []
 
+    # Upper and lower boundary edges for Robin boundary condition
     for column in range(n):
         robin_edges.append((column, column + 1))
         robin_edges.append((n * (n + 1) + column, n * (n + 1) + column + 1))
 
+    # Right boundary edges for Robin boundary condition
     for row in range(n):
         robin_edges.append((row * (n + 1) + n, (row + 1) * (n + 1) + n))
 
+    # Left boundary edges for Robin boundary condition
     for row in range(n // 2, n):
         robin_edges.append((row * (n + 1), (row + 1) * (n + 1)))
-
-    robin_stiffness: NDArray[np.float64] = h / 48.0 * np.array([[2.0, 1.0], [1.0, 2.0]])
 
     for first_node, second_node in robin_edges:
         edge_nodes: tuple[int, int] = (first_node, second_node)
@@ -94,20 +112,26 @@ def solve(
                 columns.append(edge_nodes[local_column])
                 values.append(robin_stiffness[local_row, local_column])
 
+    # Assemble the global stiffness matrix
     stiffness = coo_matrix(  # type: ignore
         (values, (rows, columns)),  # type: ignore
         shape=(node_count, node_count),
     ).tocsr()
 
+    # Dirichlet boundary conditions
     free_nodes: NDArray[np.bool_] = np.ones(node_count, dtype=bool)
     for row in range(n // 2 + 1):
         free_nodes[row * (n + 1)] = False
 
+    # Application Dirichlet boundary conditions
     reduced_stiffness = stiffness[free_nodes][:, free_nodes]
     reduced_load: NDArray[np.float64] = load[free_nodes]
     solution: NDArray[np.float64] = np.zeros(node_count)
+
+    # Solve the reduced system for free nodes
     solution[free_nodes] = spsolve(reduced_stiffness, reduced_load)
 
+    # Compute the residual of the solution
     residual: float = float(
         np.linalg.norm(reduced_stiffness @ solution[free_nodes] - reduced_load)
     )
