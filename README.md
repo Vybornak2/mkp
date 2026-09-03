@@ -160,7 +160,7 @@ $$
 
 ## Numerické řešení
 
-Implementace v `src/main.py` řeší úlohu na sítích $10 \times 10$ a $100 \times 100$. Každý čtverec sítě je rozdělen na dolní a horní trojúhelník. Globální matice je sestavena jako řídká matice a zredukovaná soustava je vyřešena přímým řešičem.
+Implementace v `src/main.py` řeší úlohu na sítích $N \in \{10, 20, 40, 80\}$. Každý čtverec sítě je rozdělen na dolní a horní trojúhelník. Řešení pro $N=80$ slouží jako referenční pro výpočet chyb a porovnání.
 
 Program se spustí pomocí UV:
 
@@ -170,12 +170,12 @@ uv run python src/main.py
 
 Výsledky se uloží do adresáře `output`:
 
-- `solution_10x10.html` – interaktivní 3D řešení na síti $10 \times 10$,
-- `solution_100x100.html` – interaktivní 3D řešení na síti $100 \times 100$,
-- `comparison_10x10.png` – řezy a srovnání MKP/MKO na síti $10 \times 10$,
-- `comparison_100x100.png` – řezy a srovnání MKP/MKO na síti $100 \times 100$.
+- `solution_NxN.html` – interaktivní 3D řešení pro každé $N$,
+- `comparison_NxN.png` – dva řezy a mapa rozdílu vůči $N=80$ pro $N \in \{10, 20, 40\}$,
+- `convergence.png` – log-log graf $L^2$ a $H^1$ chyby,
+- `summary.txt` – rezidua, konvergenční tabulka, EOC a stručné vyhodnocení.
 
 HTML grafy řešení jsou samostatné a lze je otevřít přímo v prohlížeči. Podporují
 otáčení a přiblížení 3D plochy i zobrazení přesných hodnot po najetí kurzorem.
 
-Normy reziduí zredukovaných soustav jsou přibližně $6{,}4 \cdot 10^{-15}$ pro síť $10 \times 10$ a $7{,}4 \cdot 10^{-14}$ pro síť $100 \times 100$.
+Hrubá řešení se po částech lineárně interpolují na síť $N=80$. Integrály $L^2$ chyby a $H^1$ seminormy chyby se potom vyčíslí přímo na této referenční síti.
