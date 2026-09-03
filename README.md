@@ -157,3 +157,25 @@ $$
 \mathbf{A}_{\mathrm{free}}\mathbf{U}_{\mathrm{free}}
 = \mathbf{F}_{\mathrm{free}}.
 $$
+
+## Numerické řešení
+
+Implementace v `src/main.py` řeší úlohu na sítích $10 \times 10$ a $100 \times 100$. Každý čtverec sítě je rozdělen na dolní a horní trojúhelník. Globální matice je sestavena jako řídká matice a zredukovaná soustava je vyřešena přímým řešičem.
+
+Program se spustí pomocí UV:
+
+```powershell
+uv run python src/main.py
+```
+
+Výsledky se uloží do adresáře `output`:
+
+- `solution_10x10.html` – interaktivní 3D řešení na síti $10 \times 10$,
+- `solution_100x100.html` – interaktivní 3D řešení na síti $100 \times 100$,
+- `comparison_10x10.png` – řezy a srovnání MKP/MKO na síti $10 \times 10$,
+- `comparison_100x100.png` – řezy a srovnání MKP/MKO na síti $100 \times 100$.
+
+HTML grafy řešení jsou samostatné a lze je otevřít přímo v prohlížeči. Podporují
+otáčení a přiblížení 3D plochy i zobrazení přesných hodnot po najetí kurzorem.
+
+Normy reziduí zredukovaných soustav jsou přibližně $6{,}4 \cdot 10^{-15}$ pro síť $10 \times 10$ a $7{,}4 \cdot 10^{-14}$ pro síť $100 \times 100$.
